@@ -91,12 +91,20 @@ export default function Home() {
     });
     setShowUpload(false); setNotice(`Scored ${imported.length} imported opportunities`);
   };
-  const addManualDeal = (deal: Omit<Opportunity, "score" | "tier" | "changed" | "confidence">) => {
+  const addManualDeal = async (deal: Omit<Opportunity, "score" | "tier" | "changed" | "confidence">) => {
     const description = `${deal.nextStep} ${deal.source} ${deal.partner}`.toLowerCase();
     let score = 48 + (deal.amount >= 100000 ? 10 : 3) + (deal.stage === "Proposal" || deal.stage === "Negotiation" ? 15 : 0);
     if (description.includes("partner")) score += 4;
     score = Math.max(20, Math.min(95, score));
-    const opportunity: Opportunity = { ...deal, score, tier: tierFromScore(score), changed: 0, confidence: "Medium", flags: score < 60 ? ["Budget not confirmed"] : undefined };
+    let opportunity: Opportunity = { ...deal, score, tier: tierFromScore(score), changed: 0, confidence: "Medium", flags: score < 60 ? ["Budget not confirmed"] : undefined };
+    setNotice(`AI is scoring ${opportunity.name}…`);
+    try {
+      const response = await fetch("/api/score", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ opportunity, scoringModel: categories }) });
+      if (response.ok) {
+        const ai = await response.json(); const overall = Math.round(Number(ai.overallScore));
+        opportunity = { ...opportunity, score: overall, tier: tierFromScore(overall), confidence: ai.confidence || "Medium", flags: ai.flags || opportunity.flags };
+      }
+    } catch { /* The deterministic qualification score remains available if AI is temporarily unavailable. */ }
     setOpportunities(current => [opportunity, ...current].sort((a, b) => b.score - a.score));
     setNotice(`Scored ${opportunity.name}`); setShowManual(false); setActive(opportunity);
   };
