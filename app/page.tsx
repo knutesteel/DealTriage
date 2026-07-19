@@ -32,10 +32,11 @@ const seed: Opportunity[] = [
 ];
 
 const categories = [
-  ["Ideal customer fit", 10], ["Pain and urgency", 12], ["Buying authority / access", 10],
-  ["Budget and funding confidence", 12], ["Timing / compelling event", 10], ["Solution fit and expected value", 10],
-  ["Engagement / activity", 7], ["Procurement path / feasibility", 7], ["Competitive position", 5],
-  ["Strategic value / expansion", 4], ["Existing relationships", 7], ["Partner relationships", 6]
+  ["Ideal customer fit", 8], ["Pain and urgency", 10], ["Buying authority / access", 8],
+  ["Budget and funding confidence", 10], ["Timing / compelling event", 8], ["Solution fit and expected value", 8],
+  ["Engagement / activity", 6], ["Procurement path / feasibility", 6], ["Competitive position", 4],
+  ["Strategic value / expansion", 3], ["Existing relationships", 5], ["Partner relationships", 4],
+  ["Resource requirements", 20]
 ];
 
 const salesforceFields = [
@@ -66,6 +67,9 @@ function scoreFromRow(row: Record<string, string>, index: number): Opportunity {
   if (description.includes("partner")) score += 4;
   if (description.includes("urgent") || description.includes("deadline")) score += 7;
   score = Math.max(20, Math.min(95, score + ((index * 7) % 11) - 5));
+  const resourceText = `${pick("Resource Requirements", "Resource Needs", "Implementation Effort", "Delivery Effort", "Services Required")}`.toLowerCase();
+  const resourceRating = /low|minimal|light|self.?serve/.test(resourceText) ? 5 : /high|heavy|significant|complex|custom/.test(resourceText) ? 1 : 3;
+  score = Math.round((score * .8) + ((resourceRating / 5) * 20));
   const flags = score < 60 ? ["Budget not confirmed"] : undefined;
   return {
     id: pick("Opportunity ID", "Id", "ID") || `import-${index + 1}`,
