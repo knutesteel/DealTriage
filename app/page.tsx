@@ -1,5 +1,7 @@
 "use client";
 
+import "./manual.css";
+
 import { ChangeEvent, useMemo, useRef, useState } from "react";
 import {
   ArrowDownToLine, ArrowUpRight, Bot, ChevronDown, CircleAlert, Filter,
@@ -71,6 +73,7 @@ export default function Home() {
   const [query, setQuery] = useState(""); const [tier, setTier] = useState<"All" | Tier>("All");
   const [active, setActive] = useState<Opportunity | null>(null); const [showSettings, setShowSettings] = useState(false);
   const [showUpload, setShowUpload] = useState(false); const [notice, setNotice] = useState("AI scoring up to date");
+  const [showManual, setShowManual] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const filtered = useMemo(() => opportunities.filter(o => (tier === "All" || o.tier === tier) && `${o.name} ${o.account} ${o.source} ${o.partner}`.toLowerCase().includes(query.toLowerCase())), [opportunities, query, tier]);
   const stats = useMemo(() => ({ pipeline: opportunities.reduce((sum, o) => sum + o.amount, 0), hot: opportunities.filter(o => o.tier === "Hot").reduce((sum, o) => sum + o.amount, 0), flags: opportunities.filter(o => o.flags?.length).length }), [opportunities]);
@@ -88,11 +91,20 @@ export default function Home() {
     });
     setShowUpload(false); setNotice(`Scored ${imported.length} imported opportunities`);
   };
+  const addManualDeal = (deal: Omit<Opportunity, "score" | "tier" | "changed" | "confidence">) => {
+    const description = `${deal.nextStep} ${deal.source} ${deal.partner}`.toLowerCase();
+    let score = 48 + (deal.amount >= 100000 ? 10 : 3) + (deal.stage === "Proposal" || deal.stage === "Negotiation" ? 15 : 0);
+    if (description.includes("partner")) score += 4;
+    score = Math.max(20, Math.min(95, score));
+    const opportunity: Opportunity = { ...deal, score, tier: tierFromScore(score), changed: 0, confidence: "Medium", flags: score < 60 ? ["Budget not confirmed"] : undefined };
+    setOpportunities(current => [opportunity, ...current].sort((a, b) => b.score - a.score));
+    setNotice(`Scored ${opportunity.name}`); setShowManual(false); setActive(opportunity);
+  };
   return <main>
     <header className="topbar"><div className="brand"><span className="brand-mark">I</span><span>Ilma&apos;s Route to Revenue</span></div><nav><a className="active">Opportunities</a><a>Imports</a><a>Activity</a><a>Settings</a></nav><div className="top-actions"><span className="sync"><span className="sync-dot" />{notice}</span><button className="avatar">IC</button></div></header>
     <section className="shell">
       <div className="eyebrow"><Sparkles size={15}/> AI-assisted opportunity prioritization</div>
-      <div className="heading-row"><div><h1>Route to Revenue</h1><p>Know exactly where to focus next.</p></div><div className="actions"><button className="btn secondary" onClick={() => setShowSettings(true)}><Settings2 size={16}/> Scoring model</button><button className="btn secondary" onClick={exportCsv}><ArrowDownToLine size={16}/> Export to Salesforce</button><button className="btn primary" onClick={() => setShowUpload(true)}><Upload size={16}/> Upload report</button></div></div>
+      <div className="heading-row"><div><h1>Route to Revenue</h1><p>Know exactly where to focus next.</p></div><div className="actions"><button className="btn secondary" onClick={() => setShowSettings(true)}><Settings2 size={16}/> Scoring model</button><button className="btn secondary" onClick={exportCsv}><ArrowDownToLine size={16}/> Export to Salesforce</button><button className="btn secondary" onClick={() => setShowManual(true)}><Plus size={16}/> Add deal</button><button className="btn primary" onClick={() => setShowUpload(true)}><Upload size={16}/> Upload report</button></div></div>
       <section className="metrics"><div className="metric"><span>Active pipeline</span><strong>{money.format(stats.pipeline)}</strong><small>6 opportunities scored</small></div><div className="metric"><span>Hot opportunities</span><strong>{money.format(stats.hot)}</strong><small className="positive">2 deals ready for focus</small></div><div className="metric"><span>Qualification gaps</span><strong>{stats.flags}</strong><small className="warning-text">Need validation before advance</small></div><div className="metric score-card"><span>Scoring health</span><strong>86%</strong><div className="progress"><i /></div><small>High confidence across active pipeline</small></div></section>
       <section className="table-card"><div className="table-toolbar"><div className="table-title"><h2>Ranked opportunities</h2><span>{filtered.length} active</span></div><div className="toolbar-controls"><label className="search"><Search size={16}/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search opportunities" /></label><button className="icon-btn"><Filter size={16}/></button><button className="icon-btn"><SlidersHorizontal size={16}/></button></div></div>
         <div className="tier-filter">{(["All", "Hot", "Work", "Nurture", "Deprioritize"] as const).map(item => <button key={item} className={tier === item ? "selected" : ""} onClick={() => setTier(item)}>{item === "All" ? "All opportunities" : <><i className={`dot ${item.toLowerCase()}`} />{item}</>}</button>)}</div>
@@ -100,6 +112,7 @@ export default function Home() {
       </section>
     </section>
     {showUpload && <div className="overlay"><section className="modal upload-modal"><button className="close" onClick={() => setShowUpload(false)}><X size={19}/></button><div className="modal-icon"><Upload size={23}/></div><h2>Upload Salesforce report</h2><p>Upload an Opportunity Report CSV. We&apos;ll detect the Salesforce fields, preserve existing opportunities, and score only records that changed.</p><button className="dropzone" onClick={() => input.current?.click()}><Upload size={22}/><strong>Choose a CSV report</strong><span>Salesforce Opportunity Report export · CSV only</span></button><input ref={input} type="file" accept=".csv,text/csv" hidden onChange={handleFile}/><div className="modal-note"><Bot size={15}/> AI analysis uses only approved mapped columns. You&apos;ll be able to review those columns before your first production import.</div></section></div>}
+    {showManual && <ManualDealModal onClose={() => setShowManual(false)} onSave={addManualDeal} />}
     {active && <OpportunityPanel opportunity={active} onClose={() => setActive(null)} onOverride={(value) => { setOpportunities(list => list.map(o => o.id === active.id ? { ...o, score: value, tier: tierFromScore(value), changed: value - o.score } : o)); setActive({ ...active, score: value, tier: tierFromScore(value) }); }} />}
     {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
   </main>;
@@ -112,4 +125,14 @@ function OpportunityPanel({ opportunity, onClose, onOverride }: { opportunity: O
 
 function SettingsPanel({ onClose }: { onClose: () => void }) {
   return <div className="overlay"><section className="modal settings-modal"><button className="close" onClick={onClose}><X size={19}/></button><div className="eyebrow"><Settings2 size={15}/> Shared scoring model</div><h2>Qualification model</h2><p>Weights total 100 points. Changes create a new version and automatically re-score active opportunities.</p><div className="settings-list">{categories.map(([name, weight]) => <div key={String(name)}><strong>{name}</strong><label><input defaultValue={String(weight)} type="number"/>%</label></div>)}</div><div className="settings-footer"><span>Version 1.0 · Last updated today</span><button className="btn primary" onClick={onClose}>Save and re-score</button></div></section></div>;
+}
+
+function ManualDealModal({ onClose, onSave }: { onClose: () => void; onSave: (deal: Omit<Opportunity, "score" | "tier" | "changed" | "confidence">) => void }) {
+  const [form, setForm] = useState({ name: "", account: "", amount: "", closeDate: "", stage: "Qualification", forecast: "Pipeline", owner: "", source: "Manual", partner: "", nextStep: "" });
+  const update = (key: keyof typeof form, value: string) => setForm(current => ({ ...current, [key]: value }));
+  const submit = () => {
+    if (!form.name.trim() || !form.account.trim()) return;
+    onSave({ id: `manual-${Date.now()}`, name: form.name.trim(), account: form.account.trim(), amount: Number(form.amount.replace(/[^0-9.-]/g, "")) || 0, closeDate: form.closeDate || "Not provided", stage: form.stage, forecast: form.forecast, owner: form.owner || "Unassigned", source: form.source || "Manual", partner: form.partner || "—", nextStep: form.nextStep || "Validate qualification", nextStepDate: "—" });
+  };
+  return <div className="overlay"><section className="modal manual-modal"><button className="close" onClick={onClose}><X size={19}/></button><div className="eyebrow"><Plus size={15}/> Manual opportunity</div><h2>Add a deal</h2><p>Capture a deal now. The same qualification model will score it immediately.</p><div className="manual-grid"><label>Opportunity name<input autoFocus value={form.name} onChange={e => update("name", e.target.value)} placeholder="e.g. Enterprise compliance platform" /></label><label>Account<input value={form.account} onChange={e => update("account", e.target.value)} placeholder="Customer or agency" /></label><label>Amount<input inputMode="numeric" value={form.amount} onChange={e => update("amount", e.target.value)} placeholder="$0" /></label><label>Close date<input type="date" value={form.closeDate} onChange={e => update("closeDate", e.target.value)} /></label><label>Stage<select value={form.stage} onChange={e => update("stage", e.target.value)}>{["Prospecting", "Qualification", "Discovery", "Proposal", "Negotiation"].map(item => <option key={item}>{item}</option>)}</select></label><label>Lead source<input value={form.source} onChange={e => update("source", e.target.value)} placeholder="Manual, Partner, Event…" /></label><label>Partner / reseller<input value={form.partner} onChange={e => update("partner", e.target.value)} placeholder="Optional" /></label><label>Owner<input value={form.owner} onChange={e => update("owner", e.target.value)} placeholder="Optional" /></label><label className="span-two">Next step<textarea value={form.nextStep} onChange={e => update("nextStep", e.target.value)} placeholder="What must happen next?" /></label></div><div className="manual-footer"><span>Required: opportunity name and account</span><button className="btn primary" disabled={!form.name.trim() || !form.account.trim()} onClick={submit}>Score deal <ArrowUpRight size={16}/></button></div></section></div>;
 }
