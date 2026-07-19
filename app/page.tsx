@@ -2,7 +2,7 @@
 
 import "./manual.css";
 
-import { ChangeEvent, useMemo, useRef, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDownToLine, ArrowUpRight, Bot, ChevronDown, CircleAlert, Filter,
   MoreHorizontal, Plus, Search, Settings2, SlidersHorizontal, Sparkles,
@@ -15,7 +15,12 @@ type Opportunity = {
   closeDate: string; stage: string; forecast: string; owner: string; source: string;
   partner: string; nextStep: string; nextStepDate: string; changed: number;
   confidence: "High" | "Medium" | "Low"; flags?: string[];
+  dealData?: DealData; analysis?: ScoreAnalysis;
 };
+
+type DealData = Record<string, string>;
+type CategoryAnalysis = { rating: number; rationale: string; evidence: string[]; missingInformation: string[]; hardStop: boolean };
+type ScoreAnalysis = { rationale: string; categoryScores: Record<string, CategoryAnalysis> };
 
 const seed: Opportunity[] = [
   { id: "006A000001", name: "Enterprise Compliance Platform", account: "State of Colorado", score: 91, tier: "Hot", amount: 420000, closeDate: "Sep 30, 2026", stage: "Proposal", forecast: "Commit", owner: "Ilma Choi", source: "Partner", partner: "Carahsoft", nextStep: "Confirm final security language", nextStepDate: "Aug 8", changed: 6, confidence: "High" },
@@ -32,6 +37,21 @@ const categories = [
   ["Engagement / activity", 7], ["Procurement path / feasibility", 7], ["Competitive position", 5],
   ["Strategic value / expansion", 4], ["Existing relationships", 7], ["Partner relationships", 6]
 ];
+
+const salesforceFields = [
+  ["Opportunity name", "name", "Required"], ["Salesforce opportunity ID", "salesforceId", "Optional for a new deal"],
+  ["Account name", "account", "Required"], ["Salesforce account ID", "accountId", ""],
+  ["Primary contact", "primaryContact", ""], ["Contact ID", "contactId", ""],
+  ["Amount", "amount", "USD"], ["Close date", "closeDate", ""],
+  ["Stage", "stage", ""], ["Probability", "probability", "%"],
+  ["Forecast category", "forecast", ""], ["Type", "type", ""], ["Lead source", "source", ""],
+  ["Owner", "owner", ""], ["Campaign", "campaign", ""], ["Partner / reseller", "partner", ""],
+  ["Next step", "nextStep", ""], ["Next step date", "nextStepDate", ""], ["Description", "description", ""]
+] as const;
+
+const qualificationFields = categories.map(([label]) => [String(label), `qualification:${String(label)}`] as const);
+const defaultRatings = () => Object.fromEntries(categories.map(([label]) => [String(label), 3]));
+const defaultDealData = (): DealData => Object.fromEntries(salesforceFields.map(([, key]) => [key, ""]));
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 const tierFromScore = (score: number): Tier => score >= 80 ? "Hot" : score >= 60 ? "Work" : score >= 40 ? "Nurture" : "Deprioritize";
@@ -73,7 +93,7 @@ export default function Home() {
   const [query, setQuery] = useState(""); const [tier, setTier] = useState<"All" | Tier>("All");
   const [active, setActive] = useState<Opportunity | null>(null); const [showSettings, setShowSettings] = useState(false);
   const [showUpload, setShowUpload] = useState(false); const [notice, setNotice] = useState("AI scoring up to date");
-  const [showManual, setShowManual] = useState(false);
+  const [showDealWorkspace, setShowDealWorkspace] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const filtered = useMemo(() => opportunities.filter(o => (tier === "All" || o.tier === tier) && `${o.name} ${o.account} ${o.source} ${o.partner}`.toLowerCase().includes(query.toLowerCase())), [opportunities, query, tier]);
   const stats = useMemo(() => ({ pipeline: opportunities.reduce((sum, o) => sum + o.amount, 0), hot: opportunities.filter(o => o.tier === "Hot").reduce((sum, o) => sum + o.amount, 0), flags: opportunities.filter(o => o.flags?.length).length }), [opportunities]);
@@ -106,7 +126,7 @@ export default function Home() {
       }
     } catch { /* The deterministic qualification score remains available if AI is temporarily unavailable. */ }
     setOpportunities(current => [opportunity, ...current].sort((a, b) => b.score - a.score));
-    setNotice(`Scored ${opportunity.name}`); setShowManual(false); setActive(opportunity);
+    setNotice(`Scored ${opportunity.name}`); setShowDealWorkspace(false); setActive(opportunity);
   };
   const rescoreOpportunity = async (opportunity: Opportunity, categoryRatings: Record<string, number>, notes: string) => {
     setNotice(`Re-scoring ${opportunity.name} with your updates…`);
@@ -115,7 +135,8 @@ export default function Home() {
       const response = await fetch("/api/score", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ opportunity: { ...opportunity, manualCategoryRatings: categoryRatings, qualificationNotes: notes }, scoringModel: categories }) });
       if (response.ok) {
         const ai = await response.json(); const overall = Math.round(Number(ai.overallScore));
-        updated = { ...opportunity, score: overall, tier: tierFromScore(overall), confidence: ai.confidence || opportunity.confidence, flags: ai.flags || opportunity.flags, changed: overall - opportunity.score };
+        const categoryScores = Object.fromEntries((ai.categoryScores || []).map((item: { category: string; rating: number; rationale: string; evidence: string[]; missingInformation: string[]; hardStop: boolean }) => [item.category, item]));
+        updated = { ...opportunity, score: overall, tier: tierFromScore(overall), confidence: ai.confidence || opportunity.confidence, flags: ai.flags || opportunity.flags, changed: overall - opportunity.score, analysis: { rationale: ai.rationale || "", categoryScores }, dealData: { ...opportunity.dealData, qualificationNotes: notes, ...Object.fromEntries(Object.entries(categoryRatings).map(([key, value]) => [`qualification:${key}`, String(value)])) } };
       }
     } catch { /* Preserve the user's category changes even if the AI service is momentarily unavailable. */ }
     setOpportunities(list => list.map(item => item.id === opportunity.id ? updated : item));
@@ -125,7 +146,7 @@ export default function Home() {
     <header className="topbar"><div className="brand"><span className="brand-mark">I</span><span>Ilma&apos;s Route to Revenue</span></div><nav><a className="active">Opportunities</a><a>Imports</a><a>Activity</a><a>Settings</a></nav><div className="top-actions"><span className="sync"><span className="sync-dot" />{notice}</span><button className="avatar">IC</button></div></header>
     <section className="shell">
       <div className="eyebrow"><Sparkles size={15}/> AI-assisted opportunity prioritization</div>
-      <div className="heading-row"><div><h1>Route to Revenue</h1><p>Know exactly where to focus next.</p></div><div className="actions"><button className="btn secondary" onClick={() => setShowSettings(true)}><Settings2 size={16}/> Scoring model</button><button className="btn secondary" onClick={exportCsv}><ArrowDownToLine size={16}/> Export to Salesforce</button><button className="btn secondary" onClick={() => setShowManual(true)}><Plus size={16}/> Add deal</button><button className="btn primary" onClick={() => setShowUpload(true)}><Upload size={16}/> Upload report</button></div></div>
+      <div className="heading-row"><div><h1>Route to Revenue</h1><p>Know exactly where to focus next.</p></div><div className="actions"><button className="btn secondary" onClick={() => setShowSettings(true)}><Settings2 size={16}/> Scoring model</button><button className="btn secondary" onClick={exportCsv}><ArrowDownToLine size={16}/> Export to Salesforce</button><button className="btn secondary" onClick={() => setShowDealWorkspace(true)}><Plus size={16}/> Add deal</button><button className="btn primary" onClick={() => setShowUpload(true)}><Upload size={16}/> Upload report</button></div></div>
       <section className="metrics"><div className="metric"><span>Active pipeline</span><strong>{money.format(stats.pipeline)}</strong><small>6 opportunities scored</small></div><div className="metric"><span>Hot opportunities</span><strong>{money.format(stats.hot)}</strong><small className="positive">2 deals ready for focus</small></div><div className="metric"><span>Qualification gaps</span><strong>{stats.flags}</strong><small className="warning-text">Need validation before advance</small></div><div className="metric score-card"><span>Scoring health</span><strong>86%</strong><div className="progress"><i /></div><small>High confidence across active pipeline</small></div></section>
       <section className="table-card"><div className="table-toolbar"><div className="table-title"><h2>Ranked opportunities</h2><span>{filtered.length} active</span></div><div className="toolbar-controls"><label className="search"><Search size={16}/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search opportunities" /></label><button className="icon-btn"><Filter size={16}/></button><button className="icon-btn"><SlidersHorizontal size={16}/></button></div></div>
         <div className="tier-filter">{(["All", "Hot", "Work", "Nurture", "Deprioritize"] as const).map(item => <button key={item} className={tier === item ? "selected" : ""} onClick={() => setTier(item)}>{item === "All" ? "All opportunities" : <><i className={`dot ${item.toLowerCase()}`} />{item}</>}</button>)}</div>
@@ -133,7 +154,7 @@ export default function Home() {
       </section>
     </section>
     {showUpload && <div className="overlay"><section className="modal upload-modal"><button className="close" onClick={() => setShowUpload(false)}><X size={19}/></button><div className="modal-icon"><Upload size={23}/></div><h2>Upload Salesforce report</h2><p>Upload an Opportunity Report CSV. We&apos;ll detect the Salesforce fields, preserve existing opportunities, and score only records that changed.</p><button className="dropzone" onClick={() => input.current?.click()}><Upload size={22}/><strong>Choose a CSV report</strong><span>Salesforce Opportunity Report export · CSV only</span></button><input ref={input} type="file" accept=".csv,text/csv" hidden onChange={handleFile}/><div className="modal-note"><Bot size={15}/> AI analysis uses only approved mapped columns. You&apos;ll be able to review those columns before your first production import.</div></section></div>}
-    {showManual && <ManualDealModal onClose={() => setShowManual(false)} onSave={addManualDeal} />}
+    {showDealWorkspace && <DealWorkspace onClose={() => setShowDealWorkspace(false)} onSave={addManualDeal} />}
     {active && <OpportunityPanel opportunity={active} onClose={() => setActive(null)} onRescore={rescoreOpportunity} onOverride={(value) => { setOpportunities(list => list.map(o => o.id === active.id ? { ...o, score: value, tier: tierFromScore(value), changed: value - o.score } : o)); setActive({ ...active, score: value, tier: tierFromScore(value) }); }} />}
     {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
   </main>;
@@ -150,12 +171,36 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
   return <div className="overlay"><section className="modal settings-modal"><button className="close" onClick={onClose}><X size={19}/></button><div className="eyebrow"><Settings2 size={15}/> Shared scoring model</div><h2>Qualification model</h2><p>Weights total 100 points. Changes create a new version and automatically re-score active opportunities.</p><div className="settings-list">{categories.map(([name, weight]) => <div key={String(name)}><strong>{name}</strong><label><input defaultValue={String(weight)} type="number"/>%</label></div>)}</div><div className="settings-footer"><span>Version 1.0 · Last updated today</span><button className="btn primary" onClick={onClose}>Save and re-score</button></div></section></div>;
 }
 
-function ManualDealModal({ onClose, onSave }: { onClose: () => void; onSave: (deal: Omit<Opportunity, "score" | "tier" | "changed" | "confidence">) => void }) {
-  const [form, setForm] = useState({ name: "", account: "", amount: "", closeDate: "", stage: "Qualification", forecast: "Pipeline", owner: "", source: "Manual", partner: "", nextStep: "" });
-  const update = (key: keyof typeof form, value: string) => setForm(current => ({ ...current, [key]: value }));
-  const submit = () => {
-    if (!form.name.trim() || !form.account.trim()) return;
-    onSave({ id: `manual-${Date.now()}`, name: form.name.trim(), account: form.account.trim(), amount: Number(form.amount.replace(/[^0-9.-]/g, "")) || 0, closeDate: form.closeDate || "Not provided", stage: form.stage, forecast: form.forecast, owner: form.owner || "Unassigned", source: form.source || "Manual", partner: form.partner || "—", nextStep: form.nextStep || "Validate qualification", nextStepDate: "—" });
+function DealWorkspace({ onClose, onSave }: { onClose: () => void; onSave: (deal: Omit<Opportunity, "score" | "tier" | "changed" | "confidence">) => void }) {
+  const [data, setData] = useState<DealData>(() => ({ ...defaultDealData(), stage: "Qualification", forecast: "Pipeline", source: "Manual", probability: "10" }));
+  const [ratings, setRatings] = useState(defaultRatings); const [analysis, setAnalysis] = useState<ScoreAnalysis | null>(null);
+  const [openCategories, setOpenCategories] = useState<Record<string, boolean>>({});
+  const [status, setStatus] = useState<"ready" | "scoring" | "error">("ready");
+  const update = (key: string, value: string) => setData(current => ({ ...current, [key]: value }));
+  const opportunityFromForm = (): Opportunity => {
+    const amount = Number((data.amount || "").replace(/[^0-9.-]/g, "")) || 0;
+    const score = Math.round(categories.reduce((sum, [label, weight]) => sum + (ratings[String(label)] / 5) * Number(weight), 0));
+    return { id: data.salesforceId || `manual-${Date.now()}`, name: data.name || "Untitled opportunity", account: data.account || "Unassigned account", amount, closeDate: data.closeDate || "Not provided", stage: data.stage || "Qualification", forecast: data.forecast || "Pipeline", owner: data.owner || "Unassigned", source: data.source || "Manual", partner: data.partner || "—", nextStep: data.nextStep || "Validate qualification", nextStepDate: data.nextStepDate || "—", score, tier: tierFromScore(score), changed: 0, confidence: "Medium", dealData: data };
   };
-  return <div className="overlay"><section className="modal manual-modal"><button className="close" onClick={onClose}><X size={19}/></button><div className="eyebrow"><Plus size={15}/> Manual opportunity</div><h2>Add a deal</h2><p>Capture a deal now. The same qualification model will score it immediately.</p><div className="manual-grid"><label>Opportunity name<input autoFocus value={form.name} onChange={e => update("name", e.target.value)} placeholder="e.g. Enterprise compliance platform" /></label><label>Account<input value={form.account} onChange={e => update("account", e.target.value)} placeholder="Customer or agency" /></label><label>Amount<input inputMode="numeric" value={form.amount} onChange={e => update("amount", e.target.value)} placeholder="$0" /></label><label>Close date<input type="date" value={form.closeDate} onChange={e => update("closeDate", e.target.value)} /></label><label>Stage<select value={form.stage} onChange={e => update("stage", e.target.value)}>{["Prospecting", "Qualification", "Discovery", "Proposal", "Negotiation"].map(item => <option key={item}>{item}</option>)}</select></label><label>Lead source<input value={form.source} onChange={e => update("source", e.target.value)} placeholder="Manual, Partner, Event…" /></label><label>Partner / reseller<input value={form.partner} onChange={e => update("partner", e.target.value)} placeholder="Optional" /></label><label>Owner<input value={form.owner} onChange={e => update("owner", e.target.value)} placeholder="Optional" /></label><label className="span-two">Next step<textarea value={form.nextStep} onChange={e => update("nextStep", e.target.value)} placeholder="What must happen next?" /></label></div><div className="manual-footer"><span>Required: opportunity name and account</span><button className="btn primary" disabled={!form.name.trim() || !form.account.trim()} onClick={submit}>Score deal <ArrowUpRight size={16}/></button></div></section></div>;
+  useEffect(() => {
+    const timer = window.setTimeout(async () => {
+      setStatus("scoring"); const opportunity = opportunityFromForm();
+      try {
+        const response = await fetch("/api/score", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ opportunity: { ...opportunity, salesforceFields: data, manualCategoryRatings: ratings, qualificationNotes: data.qualificationNotes || "" }, scoringModel: categories }) });
+        if (!response.ok) throw new Error("Scoring failed");
+        const ai = await response.json();
+        setAnalysis({ rationale: ai.rationale || "Analysis is ready.", categoryScores: Object.fromEntries((ai.categoryScores || []).map((item: CategoryAnalysis & { category: string }) => [item.category, item])) });
+        setStatus("ready");
+      } catch { setStatus("error"); }
+    }, 850);
+    return () => window.clearTimeout(timer);
+  // Scoring happens after the seller pauses typing, avoiding a request per keystroke.
+  }, [data, ratings]);
+  const submit = () => {
+    if (!data.name.trim() || !data.account.trim()) return;
+    const opportunity = opportunityFromForm();
+    onSave({ ...opportunity, dealData: { ...data, qualificationNotes: data.qualificationNotes || "", ...Object.fromEntries(Object.entries(ratings).map(([key, value]) => [`qualification:${key}`, String(value)])) } });
+  };
+  const analysisFor = (label: string) => analysis?.categoryScores[label];
+  return <section className="workspace"><div className="workspace-head"><div><div className="eyebrow"><Plus size={15}/> New opportunity</div><h1>Add a deal</h1><p>A dedicated working tab for Salesforce data, qualification evidence, and live analysis.</p></div><div className="workspace-actions"><span className={`workspace-status ${status}`}>{status === "scoring" ? "Updating analysis…" : status === "error" ? "Analysis will retry after your next update" : "Analysis up to date"}</span><button className="btn secondary" onClick={onClose}>Cancel</button><button className="btn primary" disabled={!data.name.trim() || !data.account.trim()} onClick={submit}>Add scored deal <ArrowUpRight size={16}/></button></div></div><div className="workspace-grid"><div className="workspace-form"><section className="form-card"><div className="section-title"><div><h2>Salesforce deal detail</h2><p>Enter the fields from the Opportunity record. Required fields are marked.</p></div></div><div className="deal-grid">{salesforceFields.map(([label, key, hint]) => <label key={key} className={key === "description" || key === "nextStep" ? "wide" : ""}>{label}{hint && <small>{hint}</small>}{key === "stage" ? <select value={data[key]} onChange={e => update(key, e.target.value)}>{["Prospecting", "Qualification", "Discovery", "Proposal", "Negotiation", "Closed Won", "Closed Lost"].map(item => <option key={item}>{item}</option>)}</select> : key === "forecast" ? <select value={data[key]} onChange={e => update(key, e.target.value)}>{["Pipeline", "Best Case", "Commit", "Closed"].map(item => <option key={item}>{item}</option>)}</select> : key === "description" || key === "nextStep" ? <textarea value={data[key]} onChange={e => update(key, e.target.value)} placeholder={key === "description" ? "Customer context, use case, scope, stakeholders…" : "What must happen next?"} /> : <input type={key === "closeDate" || key === "nextStepDate" ? "date" : key === "amount" || key === "probability" ? "number" : "text"} value={data[key]} onChange={e => update(key, e.target.value)} placeholder={key === "amount" ? "0" : ""} />}</label>)}</div></section><section className="form-card"><div className="section-title"><div><h2>Deal qualification</h2><p>Every category starts collapsed. The title and score remain visible; open a group to update evidence and see its analysis.</p></div></div><div className="qualification-accordions">{qualificationFields.map(([label, key]) => { const item = analysisFor(label); const isOpen = !!openCategories[label]; const currentRating = item?.rating ?? ratings[label]; return <article className={`qualification-group ${isOpen ? "open" : ""}`} key={key}><button type="button" className="qualification-summary" onClick={() => setOpenCategories(current => ({ ...current, [label]: !current[label] }))}><span>{label}</span><b>{currentRating} / 5</b><ChevronDown size={17}/></button>{isOpen && <div className="qualification-content"><label>Seller-entered qualification evidence<textarea value={data[key] || ""} onChange={e => update(key, e.target.value)} placeholder={`Evidence for ${label.toLowerCase()}…`} /></label><label>Score<select value={ratings[label]} onChange={e => setRatings(current => ({ ...current, [label]: Number(e.target.value) }))}>{[1,2,3,4,5].map(value => <option key={value} value={value}>{value} / 5</option>)}</select></label><div className="category-analysis"><strong>Resulting analysis</strong><p>{item?.rationale || "Analysis will appear here after your update is scored."}</p>{item?.evidence?.length ? <p><b>Evidence used:</b> {item.evidence.join(" · ")}</p> : null}{item?.missingInformation?.length ? <small>Still needed: {item.missingInformation.join(" · ")}</small> : null}</div></div>}</article>; })}<label className="qualification-notes">Additional qualification notes<textarea value={data.qualificationNotes || ""} onChange={e => update("qualificationNotes", e.target.value)} placeholder="Budget, buyer access, timing, competition, procurement, relationships, or any other context…" /></label></div></section></div><aside className="analysis-card"><div className="analysis-score"><span>Live opportunity score</span><strong>{analysis ? Math.round(categories.reduce((sum, [label, weight]) => sum + ((analysisFor(String(label))?.rating ?? ratings[String(label)]) / 5) * Number(weight), 0)) : Math.round(categories.reduce((sum, [label, weight]) => sum + (ratings[String(label)] / 5) * Number(weight), 0))}</strong><b>{tierFromScore(analysis ? Math.round(categories.reduce((sum, [label, weight]) => sum + ((analysisFor(String(label))?.rating ?? ratings[String(label)]) / 5) * Number(weight), 0)) : Math.round(categories.reduce((sum, [label, weight]) => sum + (ratings[String(label)] / 5) * Number(weight), 0)))}</b></div><h2>Qualification analysis</h2><p className="analysis-intro">{analysis?.rationale || "Add deal information and evidence. Analysis updates automatically when you pause after a change."}</p><p className="analysis-hint">Open a category to view the data entered and its resulting analysis.</p></aside></div></section>;
 }
