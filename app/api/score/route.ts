@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-const systemPrompt = `You are Ilma's Route to Revenue, an enterprise opportunity qualification analyst. Score only from provided evidence. Return valid JSON with overallScore (0-100), tier (Hot|Work|Nurture|Deprioritize), confidence (High|Medium|Low), rationale, flags, and categoryScores. Each category score must have rating (1-5), rationale, evidence, missingInformation, and hardStop. Be conservative when evidence is missing.`;
+const systemPrompt = `You are Ilma's Route to Revenue, an enterprise opportunity qualification analyst. Score only from provided evidence. If the opportunity includes manualCategoryRatings or qualificationNotes, treat them as the seller's newest qualification evidence: use each manual rating as the requested category rating, weigh the notes in your rationale, and recalculate the overall score accordingly. Return valid JSON with overallScore (0-100), tier (Hot|Work|Nurture|Deprioritize), confidence (High|Medium|Low), rationale, flags, and categoryScores. Each category score must have rating (1-5), rationale, evidence, missingInformation, and hardStop. Be conservative when evidence is missing.`;
 
 export async function POST(request: Request) {
   const { opportunity, scoringModel } = await request.json();
