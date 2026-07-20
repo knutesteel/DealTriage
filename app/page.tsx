@@ -147,7 +147,7 @@ export default function Home() {
     setActive(updated); setNotice(`Updated score for ${updated.name}`);
   };
   return <main>
-    <header className="topbar"><div className="brand"><span className="brand-mark">I</span><span>Ilma&apos;s Route to Revenue</span></div><nav><a className="active">Opportunities</a><a>Imports</a><a>Activity</a><a>Settings</a></nav><div className="top-actions"><span className="sync"><span className="sync-dot" />{notice}</span><button className="avatar">IC</button></div></header>
+    <header className="topbar"><div className="brand"><img className="brand-logo" src="/ilma-logo.png" alt="Ilma llama logo"/><span>Ilma&apos;s Route to Revenue</span></div><nav><a className="active">Opportunities</a><a>Imports</a><a>Activity</a><a>Settings</a></nav><div className="top-actions"><span className="sync"><span className="sync-dot" />{notice}</span><button className="avatar">IC</button></div></header>
     <section className="shell">
       <div className="eyebrow"><Sparkles size={15}/> AI-assisted opportunity prioritization</div>
       <div className="heading-row"><div><h1>Route to Revenue</h1><p>Know exactly where to focus next.</p></div><div className="actions"><button className="btn secondary" onClick={() => setShowSettings(true)}><Settings2 size={16}/> Scoring model</button><button className="btn secondary" onClick={exportCsv}><ArrowDownToLine size={16}/> Export to Salesforce</button><button className="btn secondary" onClick={() => setShowDealWorkspace(true)}><Plus size={16}/> Add deal</button><button className="btn primary" onClick={() => setShowUpload(true)}><Upload size={16}/> Upload report</button></div></div>
