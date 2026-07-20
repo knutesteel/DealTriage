@@ -14,6 +14,7 @@ test("point score uses AI recommendations directly", () => {
 
 test("manual overrides cannot exceed the category maximum", () => {
   assert.equal(pointScore(model, { Fit: 20, Resources: 40 }, { Resources: 100 }), 80);
+  assert.equal(pointScore(model, { Fit: 20, Resources: 40 }, { Resources: 41.6 }), 62);
   assert.deepEqual(clampCategoryPoints(model, { Fit: 100, Resources: -4 }), { Fit: 40, Resources: 0 });
 });
 
