@@ -1,6 +1,7 @@
 "use client";
 
 import "./manual.css";
+import "./concept.css";
 
 import { ChangeEvent, Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
