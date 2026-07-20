@@ -228,6 +228,7 @@ function parseCsv(text: string) {
 }
 
 export default function Dashboard({ userEmail }: { userEmail: string }) {
+  const isSoleAdmin=userEmail.trim().toLowerCase()==="knutesteel@gmail.com";
   const [opportunities, setOpportunities] = useState<Opportunity[]>(seed.map(normalizeOpportunity));
   const [query, setQuery] = useState(""); const [tier, setTier] = useState<"All" | Tier>("All");
   const [stageFilter, setStageFilter] = useState("All"); const [ownerFilter, setOwnerFilter] = useState("All");
@@ -236,7 +237,7 @@ export default function Dashboard({ userEmail }: { userEmail: string }) {
   const [sortBy, setSortBy] = useState<"name"|"score"|"amount"|"stage"|"closeDate"|"source"|"nextStep"|"changed">("score"); const [sortDirection,setSortDirection]=useState<"asc"|"desc">("desc");
   const [showGapsOnly, setShowGapsOnly] = useState(false);
   const [selected, setSelected] = useState<string[]>([]); const [workspaceId, setWorkspaceId] = useState<string | null>(null);
-  const [role, setRole] = useState("member"); const [loadingData, setLoadingData] = useState(true);
+  const [role, setRole] = useState(isSoleAdmin?"admin":"member"); const [loadingData, setLoadingData] = useState(true);
   const [showActivity, setShowActivity] = useState(false); const [activity, setActivity] = useState<ActivityLog[]>([]); const [activityQuery, setActivityQuery] = useState("");
   const [active, setActive] = useState<Opportunity | null>(null); const [showSettings, setShowSettings] = useState(false);
   const [showUpload, setShowUpload] = useState(false); const [notice, setNotice] = useState("AI scoring up to date");
@@ -250,8 +251,8 @@ export default function Dashboard({ userEmail }: { userEmail: string }) {
       const { data: workspace, error: bootstrapError } = await supabase.rpc("bootstrap_workspace");
       if (bootstrapError || !workspace) { setNotice(bootstrapError?.message || "Workspace unavailable"); setLoadingData(false); return; }
       setWorkspaceId(workspace);
-      const { data: membership } = await supabase.from("workspace_members").select("role").eq("workspace_id", workspace).single();
-      setRole(membership?.role || "member");
+      const { data: membership } = await supabase.from("workspace_members").select("role").eq("workspace_id", workspace).eq("user_id",(await supabase.auth.getClaims()).data?.claims?.sub).maybeSingle();
+      setRole(membership?.role || (isSoleAdmin?"admin":"member"));
       await supabase.rpc("log_session_activity", { activity: "sign_in" });
       const { data, error } = await supabase.from("opportunities").select("*, score_runs(*)").eq("workspace_id", workspace).order("updated_at", { ascending: false });
       if (error) { setNotice(error.message); setLoadingData(false); return; }
