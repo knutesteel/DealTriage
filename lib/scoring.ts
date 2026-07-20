@@ -15,7 +15,7 @@ export function pointScore(model: ScoringCategory[], aiPoints: Record<string, nu
   const recommended = clampCategoryPoints(model, aiPoints);
   return Math.round(model.reduce((sum, [label, maximum]) => {
     const manual = Number(manualPoints[label]);
-    const effective = Number.isFinite(manual) ? Math.min(maximum, Math.max(0, manual)) : recommended[label];
+    const effective = Number.isFinite(manual) ? Math.min(maximum, Math.max(0, Math.round(manual))) : recommended[label];
     return sum + effective;
   }, 0));
 }
