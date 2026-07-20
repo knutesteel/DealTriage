@@ -49,7 +49,7 @@ function sampleQualification(account: string, partner: string, base: number): De
   };
 }
 
-const seed: Opportunity[] = [
+const featuredSeed: Opportunity[] = [
   { id: "006A000001", name: "State of Colorado - Enterprise Compliance Program", account: "State of Colorado", score: 91, tier: "Hot", amount: 420000, closeDate: "Sep 30, 2026", stage: "Proposal", forecast: "Commit", owner: "Michael Jordan", source: "Partner", partner: "Carahsoft", nextStep: "Confirm final security language", nextStepDate: "Aug 8", changed: 6, confidence: "High", dealData: sampleQualification("State of Colorado", "Carahsoft", 5) },
   { id: "006A000002", name: "City of Austin - Trust Management Expansion", account: "City of Austin", score: 84, tier: "Hot", amount: 185000, closeDate: "Aug 31, 2026", stage: "Negotiation", forecast: "Best Case", owner: "Shohei Ohtani", source: "Outbound", partner: "—", nextStep: "Economic buyer review", nextStepDate: "Aug 5", changed: 4, confidence: "High", dealData: sampleQualification("City of Austin", "—", 4) },
   { id: "006A000003", name: "University of Michigan - Security Automation Program", account: "University of Michigan", score: 72, tier: "Work", amount: 250000, closeDate: "Nov 15, 2026", stage: "Discovery", forecast: "Pipeline", owner: "Jerry Rice", source: "Event", partner: "Deloitte", nextStep: "Map procurement vehicle", nextStepDate: "Aug 13", changed: -3, confidence: "Medium", flags: ["No Procurement Path"], dealData: sampleQualification("University of Michigan", "Deloitte", 3) },
@@ -58,7 +58,23 @@ const seed: Opportunity[] = [
   { id: "006A000006", name: "City of Phoenix - Public Sector Risk Program", account: "City of Phoenix", score: 32, tier: "Deprioritize", amount: 120000, closeDate: "Mar 31, 2027", stage: "Prospecting", forecast: "Pipeline", owner: "Michael Jordan", source: "Outbound", partner: "—", nextStep: "Reconnect after budget cycle", nextStepDate: "Oct 1", changed: -5, confidence: "Low", flags: ["No Executive Sponsor", "Stale Next Step"], dealData: sampleQualification("City of Phoenix", "—", 1) }
 ];
 
+const customerNames = ["State of Oregon","City of Denver","Clark County","Georgia Tech","State of Maryland","City of Seattle","Maricopa County","Ohio State University","State of Nevada","City of Boston","King County","University of Florida","State of Arizona","City of Nashville","Cook County","Penn State University","State of Minnesota","City of Raleigh","Fairfax County","University of Wisconsin"];
+const dealPrograms = ["Compliance Modernization","Trust Center Expansion","Security Automation","Vendor Risk Program","Audit Readiness","Continuous Monitoring","Third-Party Risk","Evidence Automation","Governance Transformation","Risk Operations"];
 const sampleOwners = ["Michael Jordan", "Shohei Ohtani", "Jerry Rice", "Alexander Ovechkin", "Michael Phelps"];
+const generatedCounts = { small:54, moderate:30, big:8, huge:2 } as const;
+const generatedSeed: Opportunity[] = Object.entries(generatedCounts).flatMap(([segment,count],segmentIndex)=>Array.from({length:count},(_,index)=>{
+  const sequence=featuredSeed.length+Object.values(generatedCounts).slice(0,segmentIndex).reduce((sum,value)=>sum+value,0)+index+1;
+  const account=`${customerNames[(sequence*7)%customerNames.length]} ${Math.floor((sequence-1)/customerNames.length)+1}`;
+  const amount=segment==="small"?20000+((index*13751)%80000):segment==="moderate"?110000+((index*31753)%390000):segment==="big"?525000+((index*97777)%675000):1950000+(index*125000);
+  const surpriseHigh=segment==="small"&&index<8; const surpriseLow=(segment==="big"&&index<3)||(segment==="huge"&&index===0);
+  const base=surpriseHigh?5:surpriseLow?1:1+((sequence*3)%5); const score=surpriseHigh?88+(index%8):surpriseLow?22+(index*4):Math.max(24,Math.min(94,Math.round(25+base*13+((sequence*11)%15))));
+  const qualification=sampleQualification(account,"—",base); const dealSizePoints=segment==="small"?2:segment==="moderate"?6:segment==="big"?8:10;
+  qualification["qualification:Deal Size"]=`Expected contract value is $${amount.toLocaleString("en-US")} in the ${segment} deal segment.`; qualification["aiPoints:Deal Size"]=String(dealSizePoints);
+  const flags=score<45?[surpriseLow?"Large Deal With Weak Qualification":"Multiple Qualification Gaps"]:score<65?["Qualification Evidence Needed"]:undefined;
+  return {id:`006S${String(sequence).padStart(6,"0")}`,name:`${account} - ${dealPrograms[sequence%dealPrograms.length]}`,account,score,tier:score>=80?"Hot":score>=60?"Work":score>=40?"Nurture":"Deprioritize",amount,closeDate:new Date(2026+(sequence%2),(sequence*5)%12,1+((sequence*7)%27)).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}),stage:["Prospecting","Qualification","Discovery","Proposal","Negotiation"][sequence%5],forecast:score>=80?"Commit":score>=60?"Best Case":"Pipeline",owner:sampleOwners[sequence%sampleOwners.length],source:["Inbound","Outbound","Event","Referral","Partner"][sequence%5],partner:sequence%4===0?"Carahsoft":"—",nextStep:["Validate executive sponsor","Confirm funding source","Schedule technical discovery","Map procurement path","Review value proposition"][sequence%5],nextStepDate:`Aug ${1+(sequence%27)}`,changed:(sequence%11)-5,confidence:score>=78?"High":score>=52?"Medium":"Low",flags,dealData:qualification} as Opportunity;
+}));
+const seed: Opportunity[] = [...featuredSeed,...generatedSeed];
+
 const formatOpportunityName = (account: string, dealName: string) => {
   const customer = account.trim() || "Unassigned Customer"; const deal = dealName.trim() || "Untitled Deal";
   return deal.startsWith(`${customer} - `) ? deal : `${customer} - ${deal}`;
@@ -215,7 +231,11 @@ export default function Dashboard({ userEmail }: { userEmail: string }) {
         const ids = new Map((inserted || []).map(row => [row.salesforce_opportunity_id, row]));
         setOpportunities(seed.map(item => normalizeOpportunity({ ...item, dbId: ids.get(item.id)?.id, lifecycle: "active", updatedAt: ids.get(item.id)?.updated_at })));
       } else {
-        setOpportunities(data.map(row => normalizeOpportunity({ ...(row.source_data as Opportunity), dbId: row.id, lifecycle: row.lifecycle, updatedAt: row.updated_at, lastScoredAt: row.last_scored_at, history: (row.score_runs || []).sort((a: ScoreHistory, b: ScoreHistory) => b.created_at.localeCompare(a.created_at)) })));
+        const existingIds=new Set(data.map(row=>row.salesforce_opportunity_id)); const missing=seed.filter(item=>!existingIds.has(item.id));
+        let added:Opportunity[]=[];
+        if(missing.length){const rows=missing.map(item=>({workspace_id:workspace,salesforce_opportunity_id:item.id,source_data:item,lifecycle:"active",last_scored_at:new Date().toISOString()}));const {data:inserted}=await supabase.from("opportunities").insert(rows).select("id,salesforce_opportunity_id,updated_at");const ids=new Map((inserted||[]).map(row=>[row.salesforce_opportunity_id,row]));added=missing.map(item=>normalizeOpportunity({...item,dbId:ids.get(item.id)?.id,lifecycle:"active",updatedAt:ids.get(item.id)?.updated_at}));}
+        const existing=data.map(row => normalizeOpportunity({ ...(row.source_data as Opportunity), dbId: row.id, lifecycle: row.lifecycle, updatedAt: row.updated_at, lastScoredAt: row.last_scored_at, history: (row.score_runs || []).sort((a: ScoreHistory, b: ScoreHistory) => b.created_at.localeCompare(a.created_at)) }));
+        setOpportunities([...existing,...added].sort((a,b)=>b.score-a.score));
       }
       setLoadingData(false); setNotice("Workspace synced");
     })();
