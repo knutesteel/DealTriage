@@ -29,7 +29,7 @@ export async function POST(request: Request) {
   }
   const maximumByCategory = Object.fromEntries(scoringModel.map(([label, maximum]) => [String(label), Number(maximum)]));
   const rawManual = opportunity.manualCategoryPoints && typeof opportunity.manualCategoryPoints === "object" ? opportunity.manualCategoryPoints as Record<string, number> : {};
-  const manualCategoryPoints = Object.fromEntries(Object.entries(rawManual).flatMap(([label, value]) => label in maximumByCategory && Number.isFinite(Number(value)) ? [[label, Math.min(maximumByCategory[label], Math.max(0, Number(value)))]] : []));
+  const manualCategoryPoints = Object.fromEntries(Object.entries(rawManual).flatMap(([label, value]) => label in maximumByCategory && Number.isFinite(Number(value)) ? [[label, Math.min(maximumByCategory[label], Math.max(0, Math.round(Number(value))))]] : []));
   const safeOpportunity = { ...opportunity, manualCategoryPoints };
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
