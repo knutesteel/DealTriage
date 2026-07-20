@@ -18,7 +18,7 @@ export default function SignInPage() {
     event.preventDefault(); setLoading(true); setMessage("");
     const supabase = getSupabase();
     if (!supabase) { setMessage("Sign-in is not configured for this deployment."); setLoading(false); return; }
-    const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: window.location.origin } });
+    const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: `${window.location.origin}/auth/callback` } });
     setMessage(error ? error.message : "Check your email for a secure sign-in link."); setLoading(false);
   }
 
@@ -26,7 +26,7 @@ export default function SignInPage() {
     setLoading(true); setMessage("");
     const supabase = getSupabase();
     if (!supabase) { setMessage("Sign-in is not configured for this deployment."); setLoading(false); return; }
-    const { error } = await supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: window.location.origin } });
+    const { error } = await supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: `${window.location.origin}/auth/callback` } });
     if (error) { setMessage(error.message); setLoading(false); }
   }
 
