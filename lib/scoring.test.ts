@@ -1,15 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { validateScoringModel, weightedScore } from "./scoring.ts";
+import { clampCategoryPoints, pointScore, validateScoringModel } from "./scoring.ts";
 
 const model: [string, number][] = [["Fit", 40], ["Resources", 60]];
 
-test("missing qualification data receives a rating of one", () => {
-  assert.equal(weightedScore(model, {}), 20);
+test("missing qualification data receives twenty percent of available points", () => {
+  assert.equal(pointScore(model, {}), 20);
 });
 
-test("weighted score respects the inverse resource rating supplied by analysis", () => {
-  assert.equal(weightedScore(model, { Fit: 4, Resources: 5 }), 92);
+test("point score uses AI recommendations directly", () => {
+  assert.equal(pointScore(model, { Fit: 32, Resources: 60 }), 92);
+});
+
+test("manual overrides cannot exceed the category maximum", () => {
+  assert.equal(pointScore(model, { Fit: 20, Resources: 40 }, { Resources: 100 }), 80);
+  assert.deepEqual(clampCategoryPoints(model, { Fit: 100, Resources: -4 }), { Fit: 40, Resources: 0 });
 });
 
 test("model validation requires exactly one hundred percent", () => {
